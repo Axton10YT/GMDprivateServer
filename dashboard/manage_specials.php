@@ -1,17 +1,19 @@
 <?php
-// Auto-detect include path for Cvolton library files
-if (file_exists(__DIR__ . "/lib/connection.php")) {
-    $libPath = __DIR__ . "/lib/";
-} elseif (file_exists(__DIR__ . "/../lib/connection.php")) {
-    $libPath = __DIR__ . "/../lib/";
-} else {
-    die("Error: Could not locate the 'lib' directory. Please check file placement.");
-}
+// Turn on error reporting to debug any missing include issues instantly
+ini_set('display_errors', 1);
+error_reporting(E_ALL);
 
-include $libPath . "connection.php";
-require_once $libPath . "GJPCheck.php";
-require_once $libPath . "exploitPatch.php";
-require_once $libPath . "mainLib.php";
+chdir(dirname(__FILE__));
+
+// Cvolton Dashboard includes live inside incl/
+include "incl/lib/connection.php";
+require_once "incl/lib/GJPCheck.php";
+require_once "incl/lib/exploitPatch.php";
+require_once "incl/lib/mainLib.php";
+
+$gs = new mainLib();
+$message = "";
+$messageType = "";
 
 $gs = new mainLib();
 $message = "";
