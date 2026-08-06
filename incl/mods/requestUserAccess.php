@@ -4,7 +4,7 @@ chdir(dirname(__FILE__));
 require_once "../lib/GJPCheck.php";
 require_once "../lib/exploitPatch.php";
 require_once "../lib/mainLib.php"; //this is connection.php too
-$gs = new mainLib();
+$gs = new mainLib(); // todo: make this endpoint faster
 
 $accountID = GJPCheck::getAccountIDOrDie();
 
