@@ -36,7 +36,7 @@ if ($query3->rowCount() > 0) {
 }
 
 // ── 2. Query CDN /info/{songId} JSON Endpoint for Missing Songs ───────────
-$cdnInfoUrl = "https://cdn.robtop.net/info/" . rawurlencode((string)$songid);
+$cdnInfoUrl = "https://cdn.robtop.net/info/" . rawurlencode((string)$songid); // you can edit this to your own self hosted CDN if you'd like. source for the cdn (cloudflare worker + R2 and keys i forgot the name) source at https://github.com/Axton10YT/gdps-cdn
 
 $ch = curl_init($cdnInfoUrl);
 curl_setopt_array($ch, [
