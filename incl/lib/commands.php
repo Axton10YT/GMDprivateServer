@@ -11,6 +11,7 @@ class Commands {
 		}
 		return false;
 	}
+
 	public static function doCommands($accountID, $comment, $levelID) {
 		if(!is_numeric($accountID)) return false;
 		if($levelID < 0) return self::doListCommands($accountID, $comment, $levelID);
@@ -20,26 +21,30 @@ class Commands {
 		$gs = new mainLib();
 		$commentarray = explode(' ', $comment);
 		$uploadDate = time();
-		//LEVELINFO
+
+		// LEVEL INFO
 		$query2 = $db->prepare("SELECT extID FROM levels WHERE levelID = :id");
 		$query2->execute([':id' => $levelID]);
 		$targetExtID = $query2->fetchColumn();
-		//ADMIN COMMANDS
+
+		// ── ADMIN COMMANDS ───────────────────────────────────────────────────
+
+		// !rate
 		if(substr($comment,0,5) == '!rate' AND $gs->checkPermission($accountID, "commandRate")){
-			$starStars = $commentarray[2];
-			if($starStars == ""){
-				$starStars = 0;
-			}
-			$starCoins = $commentarray[3];
-			$starFeatured = $commentarray[4];
-			$diffArray = $gs->getDiffFromName($commentarray[1]);
+			$starStars = $commentarray[2] ?? 0;
+			$starCoins = $commentarray[3] ?? "";
+			$starFeatured = $commentarray[4] ?? "";
+			$diffArray = $gs->getDiffFromName($commentarray[1] ?? "");
 			$starDemon = $diffArray[1];
 			$starAuto = $diffArray[2];
 			$starDifficulty = $diffArray[0];
+
 			$query = $db->prepare("UPDATE levels SET starStars=:starStars, starDifficulty=:starDifficulty, starDemon=:starDemon, starAuto=:starAuto, rateDate=:timestamp WHERE levelID=:levelID");
 			$query->execute([':starStars' => $starStars, ':starDifficulty' => $starDifficulty, ':starDemon' => $starDemon, ':starAuto' => $starAuto, ':timestamp' => $uploadDate, ':levelID' => $levelID]);
+
 			$query = $db->prepare("INSERT INTO modactions (type, value, value2, value3, timestamp, account) VALUES ('1', :value, :value2, :levelID, :timestamp, :id)");
-			$query->execute([':value' => $commentarray[1], ':timestamp' => $uploadDate, ':id' => $accountID, ':value2' => $starStars, ':levelID' => $levelID]);
+			$query->execute([':value' => $commentarray[1] ?? "", ':timestamp' => $uploadDate, ':id' => $accountID, ':value2' => $starStars, ':levelID' => $levelID]);
+
 			if($starFeatured != ""){
 				$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('2', :value, :levelID, :timestamp, :id)");
 				$query->execute([':value' => $starFeatured, ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);	
@@ -54,6 +59,8 @@ class Commands {
 			}
 			return true;
 		}
+
+		// !feature
 		if(substr($comment,0,8) == '!feature' AND $gs->checkPermission($accountID, "commandFeature")){
 			$query = $db->prepare("UPDATE levels SET starFeatured='1' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -61,6 +68,8 @@ class Commands {
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
+		// !epic
 		if(substr($comment,0,5) == '!epic' AND $gs->checkPermission($accountID, "commandEpic")){
 			$query = $db->prepare("UPDATE levels SET starEpic='1' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -68,13 +77,17 @@ class Commands {
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
+		// !unepic
 		if(substr($comment,0,7) == '!unepic' AND $gs->checkPermission($accountID, "commandUnepic")){
 			$query = $db->prepare("UPDATE levels SET starEpic='0' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
 			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('4', :value, :levelID, :timestamp, :id)");
 			$query->execute([':value' => "0", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
-				return true;
+			return true;
 		}
+
+		// !verifycoins
 		if(substr($comment,0,12) == '!verifycoins' AND $gs->checkPermission($accountID, "commandVerifycoins")){
 			$query = $db->prepare("UPDATE levels SET starCoins='1' WHERE levelID = :levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -82,77 +95,127 @@ class Commands {
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
+		// !daily
 		if(substr($comment,0,6) == '!daily' AND $gs->checkPermission($accountID, "commandDaily")){
-			$query = $db->prepare("SELECT count(*) FROM dailyfeatures WHERE levelID = :level AND type = 0");
-				$query->execute([':level' => $levelID]);
-			if($query->fetchColumn() != 0){
-				return false;
+			// Fetch the latest daily slot timestamp
+			$query = $db->prepare("SELECT timestamp FROM dailyfeatures WHERE type = 0 ORDER BY timestamp DESC LIMIT 1");
+			$query->execute();
+			$lastTimestamp = $query->fetchColumn();
+
+			$tomorrow = strtotime("tomorrow 00:00:00");
+			if (!$lastTimestamp || $lastTimestamp < $tomorrow) {
+				$timestamp = $tomorrow;
+			} else {
+				$timestamp = $lastTimestamp + 86400; // Append to end of daily queue
 			}
-			$query = $db->prepare("SELECT timestamp FROM dailyfeatures WHERE timestamp >= :tomorrow AND type = 0 ORDER BY timestamp DESC LIMIT 1");
-			$query->execute([':tomorrow' => strtotime("tomorrow 00:00:00")]);
-			if($query->rowCount() == 0){
-				$timestamp = strtotime("tomorrow 00:00:00");
-			}else{
-				$timestamp = $query->fetchColumn() + 86400;
-			}
-			$query = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type) VALUES (:levelID, :uploadDate, 0)");
-				$query->execute([':levelID' => $levelID, ':uploadDate' => $timestamp]);
-			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account, value2, value4) VALUES ('5', :value, :levelID, :timestamp, :id, :dailytime, 0)");
-			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID, ':dailytime' => $timestamp]);
+
+			// Get next feaID
+			$feaQuery = $db->prepare("SELECT MAX(feaID) FROM dailyfeatures WHERE type = 0");
+			$feaQuery->execute();
+			$nextFeaID = ((int)$feaQuery->fetchColumn()) + 1;
+
+			$query = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type, feaID) VALUES (:levelID, :timestamp, 0, :feaID)");
+			$query->execute([':levelID' => $levelID, ':timestamp' => $timestamp, ':feaID' => $nextFeaID]);
+
+			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account, value2, value4) VALUES ('5', '1', :levelID, :timestamp, :id, :dailytime, 0)");
+			$query->execute([':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID, ':dailytime' => $timestamp]);
 			return true;
 		}
+
+		// !weekly
 		if(substr($comment,0,7) == '!weekly' AND $gs->checkPermission($accountID, "commandWeekly")){
-			$query = $db->prepare("SELECT count(*) FROM dailyfeatures WHERE levelID = :level AND type = 1");
-			$query->execute([':level' => $levelID]);
-			if($query->fetchColumn() != 0){
-				return false;
+			// Fetch the latest weekly slot timestamp
+			$query = $db->prepare("SELECT timestamp FROM dailyfeatures WHERE type = 1 ORDER BY timestamp DESC LIMIT 1");
+			$query->execute();
+			$lastTimestamp = $query->fetchColumn();
+
+			$nextMonday = strtotime("next monday");
+			if (!$lastTimestamp || $lastTimestamp < $nextMonday) {
+				$timestamp = $nextMonday;
+			} else {
+				$timestamp = $lastTimestamp + 604800; // Append to end of weekly queue
 			}
-			$query = $db->prepare("SELECT timestamp FROM dailyfeatures WHERE timestamp >= :tomorrow AND type = 1 ORDER BY timestamp DESC LIMIT 1");
-				$query->execute([':tomorrow' => strtotime("next monday")]);
-			if($query->rowCount() == 0){
-				$timestamp = strtotime("next monday");
-			}else{
-				$timestamp = $query->fetchColumn() + 604800;
-			}
-			$query = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type) VALUES (:levelID, :uploadDate, 1)");
-			$query->execute([':levelID' => $levelID, ':uploadDate' => $timestamp]);
-			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account, value2, value4) VALUES ('5', :value, :levelID, :timestamp, :id, :dailytime, 1)");
-			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID, ':dailytime' => $timestamp]);
+
+			// Get next feaID
+			$feaQuery = $db->prepare("SELECT MAX(feaID) FROM dailyfeatures WHERE type = 1");
+			$feaQuery->execute();
+			$nextFeaID = ((int)$feaQuery->fetchColumn()) + 1;
+
+			$query = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type, feaID) VALUES (:levelID, :timestamp, 1, :feaID)");
+			$query->execute([':levelID' => $levelID, ':timestamp' => $timestamp, ':feaID' => $nextFeaID]);
+
+			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account, value2, value4) VALUES ('5', '1', :levelID, :timestamp, :id, :dailytime, 1)");
+			$query->execute([':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID, ':dailytime' => $timestamp]);
 			return true;
 		}
-		if(substr($comment,0,6) == '!delet' AND $gs->checkPermission($accountID, "commandDelete")){
+
+		// !event (2.2 Event Level support)
+		if(substr($comment,0,6) == '!event' AND ($gs->checkPermission($accountID, "commandEvent") OR $gs->checkPermission($accountID, "commandDaily"))){
+			$query = $db->prepare("SELECT timestamp FROM dailyfeatures WHERE type = 2 ORDER BY timestamp DESC LIMIT 1");
+			$query->execute();
+			$lastTimestamp = $query->fetchColumn();
+
+			$tomorrow = strtotime("tomorrow 00:00:00");
+			if (!$lastTimestamp || $lastTimestamp < $tomorrow) {
+				$timestamp = $tomorrow;
+			} else {
+				$timestamp = $lastTimestamp + 86400;
+			}
+
+			$feaQuery = $db->prepare("SELECT MAX(feaID) FROM dailyfeatures WHERE type = 2");
+			$feaQuery->execute();
+			$nextFeaID = ((int)$feaQuery->fetchColumn()) + 1;
+
+			$query = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type, feaID) VALUES (:levelID, :timestamp, 2, :feaID)");
+			$query->execute([':levelID' => $levelID, ':timestamp' => $timestamp, ':feaID' => $nextFeaID]);
+
+			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account, value2, value4) VALUES ('5', '1', :levelID, :timestamp, :id, :dailytime, 2)");
+			$query->execute([':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID, ':dailytime' => $timestamp]);
+			return true;
+		}
+
+		// !delete / !delet
+		if((substr($comment,0,6) == '!delet' OR substr($comment,0,7) == '!delete') AND $gs->checkPermission($accountID, "commandDelete")){
 			if(!is_numeric($levelID)){
 				return false;
 			}
-			$query = $db->prepare("DELETE from levels WHERE levelID=:levelID LIMIT 1");
+			$query = $db->prepare("DELETE FROM levels WHERE levelID=:levelID LIMIT 1");
 			$query->execute([':levelID' => $levelID]);
 			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('6', :value, :levelID, :timestamp, :id)");
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
-			if(file_exists(dirname(__FILE__)."../../data/levels/$levelID")){
-				rename(dirname(__FILE__)."../../data/levels/$levelID",dirname(__FILE__)."../../data/levels/deleted/$levelID");
+
+			$levelPath = dirname(__FILE__)."/../data/levels/$levelID";
+			if(file_exists($levelPath)){
+				rename($levelPath, dirname(__FILE__)."/../data/levels/deleted/$levelID");
 			}
 			return true;
 		}
+
+		// !setacc
 		if(substr($comment,0,7) == '!setacc' AND $gs->checkPermission($accountID, "commandSetacc")){
+			if (!isset($commentarray[1])) return false;
 			$query = $db->prepare("SELECT accountID FROM accounts WHERE userName = :userName OR accountID = :userName LIMIT 1");
 			$query->execute([':userName' => $commentarray[1]]);
 			if($query->rowCount() == 0){
 				return false;
 			}
 			$targetAcc = $query->fetchColumn();
-			//var_dump($result);
+
 			$query = $db->prepare("SELECT userID FROM users WHERE extID = :extID LIMIT 1");
 			$query->execute([':extID' => $targetAcc]);
 			$userID = $query->fetchColumn();
+
 			$query = $db->prepare("UPDATE levels SET extID=:extID, userID=:userID, userName=:userName WHERE levelID=:levelID");
 			$query->execute([':extID' => $targetAcc, ':userID' => $userID, ':userName' => $commentarray[1], ':levelID' => $levelID]);
+
 			$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('7', :value, :levelID, :timestamp, :id)");
 			$query->execute([':value' => $commentarray[1], ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
 
-		
-	//NON-ADMIN COMMANDS
+		// ── NON-ADMIN COMMANDS ───────────────────────────────────────────────
+
 		if(self::ownCommand($comment, "rename", $accountID, $targetExtID)){
 			$name = ExploitPatch::remove(str_replace("!rename ", "", $comment));
 			$query = $db->prepare("UPDATE levels SET levelName=:levelName WHERE levelID=:levelID");
@@ -161,6 +224,7 @@ class Commands {
 			$query->execute([':value' => $name, ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "pass", $accountID, $targetExtID)){
 			$pass = ExploitPatch::remove(str_replace("!pass ", "", $comment));
 			if(is_numeric($pass)){
@@ -176,6 +240,7 @@ class Commands {
 				return true;
 			}
 		}
+
 		if(self::ownCommand($comment, "song", $accountID, $targetExtID)){
 			$song = ExploitPatch::remove(str_replace("!song ", "", $comment));
 			if(is_numeric($song)){
@@ -186,6 +251,7 @@ class Commands {
 				return true;
 			}
 		}
+
 		if(self::ownCommand($comment, "description", $accountID, $targetExtID)){
 			$desc = base64_encode(ExploitPatch::remove(str_replace("!description ", "", $comment)));
 			$query = $db->prepare("UPDATE levels SET levelDesc=:desc WHERE levelID=:levelID");
@@ -194,6 +260,7 @@ class Commands {
 			$query->execute([':value' => $desc, ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "public", $accountID, $targetExtID)){
 			$query = $db->prepare("UPDATE levels SET unlisted='0' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -201,6 +268,7 @@ class Commands {
 			$query->execute([':value' => "0", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "unlist", $accountID, $targetExtID)){
 			$query = $db->prepare("UPDATE levels SET unlisted='1' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -208,11 +276,13 @@ class Commands {
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "sharecp", $accountID, $targetExtID)){
+			if (!isset($commentarray[1])) return false;
 			$query = $db->prepare("SELECT userID FROM users WHERE userName = :userName ORDER BY isRegistered DESC LIMIT 1");
 			$query->execute([':userName' => $commentarray[1]]);
 			$targetAcc = $query->fetchColumn();
-			//var_dump($result);
+
 			$query = $db->prepare("INSERT INTO cpshares (levelID, userID) VALUES (:levelID, :userID)");
 			$query->execute([':userID' => $targetAcc, ':levelID' => $levelID]);
 			$query = $db->prepare("UPDATE levels SET isCPShared='1' WHERE levelID=:levelID");
@@ -221,6 +291,7 @@ class Commands {
 			$query->execute([':value' => $commentarray[1], ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "ldm", $accountID, $targetExtID)){
 			$query = $db->prepare("UPDATE levels SET isLDM='1' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -228,6 +299,7 @@ class Commands {
 			$query->execute([':value' => "1", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		if(self::ownCommand($comment, "unldm", $accountID, $targetExtID)){
 			$query = $db->prepare("UPDATE levels SET isLDM='0' WHERE levelID=:levelID");
 			$query->execute([':levelID' => $levelID]);
@@ -235,8 +307,10 @@ class Commands {
 			$query->execute([':value' => "0", ':timestamp' => $uploadDate, ':id' => $accountID, ':levelID' => $levelID]);
 			return true;
 		}
+
 		return false;
 	}
+
 	public static function doListCommands($accountID, $command, $listID) {
 		if(substr($command,0,1) != '!') return false;
 		$listID = $listID * -1;
@@ -245,16 +319,17 @@ class Commands {
 		require_once "../lib/mainLib.php";
 		$gs = new mainLib();
 		$carray = explode(' ', $command);
+
 		switch($carray[0]) {
 			case '!r':
 			case '!rate':
 				$getList = $db->prepare('SELECT * FROM lists WHERE listID = :listID');
 				$getList->execute([':listID' => $listID]);
 				$getList = $getList->fetch();
-				$reward = ExploitPatch::number($carray[1]);
-				$diff = ExploitPatch::charclean($carray[2]);
-				$featured = is_numeric($carray[3]) ? ExploitPatch::number($carray[3]) : ExploitPatch::number($carray[4]);
-				$count = is_numeric($carray[3]) ? ExploitPatch::number($carray[4]) : ExploitPatch::number($carray[5]);
+				$reward = ExploitPatch::number($carray[1] ?? 0);
+				$diff = ExploitPatch::charclean($carray[2] ?? "");
+				$featured = is_numeric($carray[3] ?? null) ? ExploitPatch::number($carray[3]) : ExploitPatch::number($carray[4] ?? 0);
+				$count = is_numeric($carray[3] ?? null) ? ExploitPatch::number($carray[4] ?? 0) : ExploitPatch::number($carray[5] ?? 0);
 				if(empty($count)) {
 					$levelsCount = $getList['listlevels'];
 					$count = count(explode(',', $levelsCount));
@@ -263,10 +338,10 @@ class Commands {
 					$diff = strtolower($diff);
 					if(isset($carray[3]) AND strtolower($carray[3]) == "demon") {
 						$diffList = ['easy' => 1, 'medium' => 2, 'hard' => 3, 'insane' => 4, 'extreme' => 5];
-						$diff = 5+$diffList[$diff];
+						$diff = 5+($diffList[$diff] ?? 0);
 					} else {
 						$diffList = ['na' => -1, 'auto' => 0, 'easy' => 1, 'normal' => 2, 'hard' => 3, 'harder' => 4, 'demon' => 5];
-						$diff = $diffList[$diff];
+						$diff = $diffList[$diff] ?? 0;
 					}
 				}
 				if(!isset($diff)) $diff = $getList['starDifficulty'];
@@ -282,6 +357,7 @@ class Commands {
 					$query->execute([':value' => $reward, ':value2' => $diff, ':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				} else return false;
 				break;
+
 			case '!f':
 			case '!feature':
 				if(!$gs->checkPermission($accountID, "commandFeature")) return false;
@@ -291,6 +367,7 @@ class Commands {
 				$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('32', :value, :listID, :timestamp, :id)");
 				$query->execute([':value' => $carray[1], ':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				break;
+
 			case '!un':
 			case '!unlist':
 				$accCheck = $gs->getListOwner($listID);
@@ -301,6 +378,7 @@ class Commands {
 				$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('33', :value, :listID, :timestamp, :id)");
 				$query->execute([':value' => $carray[1], ':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				break;
+
 			case '!d':
 			case '!delete':
 				if(!$gs->checkPermission($accountID, "commandDelete")) return false;
@@ -309,9 +387,11 @@ class Commands {
 				$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('34', 0, :listID, :timestamp, :id)");
 				$query->execute([':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				break;
+
 			case '!acc':
 			case '!setacc':
 				if(!$gs->checkPermission($accountID, "commandSetacc")) return false;
+				if(!isset($carray[1])) return false;
 				if(is_numeric($carray[1])) $acc = ExploitPatch::number($carray[1]);
 				else $acc = $gs->getAccountIDFromName(ExploitPatch::charclean($carray[1]));
 				if(empty($acc)) return false;
@@ -320,6 +400,7 @@ class Commands {
 				$query = $db->prepare("INSERT INTO modactions (type, value, value3, timestamp, account) VALUES ('35', :value, :listID, :timestamp, :id)");
 				$query->execute([':value' => $acc, ':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				break;
+
 			case '!re':
 			case '!rename':
 				$accCheck = $gs->getListOwner($listID);
@@ -332,6 +413,7 @@ class Commands {
 				$query = $db->prepare("INSERT INTO modactions (type, value, value2, value3, timestamp, account) VALUES ('36', :value, :value2, :listID, :timestamp, :id)");
 				$query->execute([':value' => $name, ':value2' => $oldName, ':timestamp' => time(), ':id' => $accountID, ':listID' => $listID]);
 				break;
+
 			case '!desc':
 			case '!description':
 				$accCheck = $gs->getListOwner($listID);
@@ -346,11 +428,13 @@ class Commands {
 		}
 		return true;
 	}
+
 	public static function doProfileCommands($accountID, $command){
 		include dirname(__FILE__)."/../lib/connection.php";
 		require_once "../lib/exploitPatch.php";
 		require_once "../lib/mainLib.php";
-				$gs = new mainLib();
+		$gs = new mainLib();
+
 		if(substr($command, 0, 8) == '!discord'){
 			if(substr($command, 9, 6) == "accept"){
 				$query = $db->prepare("UPDATE accounts SET discordID = discordLinkReq, discordLinkReq = '0' WHERE accountID = :accountID AND discordLinkReq <> 0");
