@@ -1,28 +1,35 @@
 <?php
-chdir(dirname(__FILE__));
+// Auto-detect include path for Cvolton library files
+if (file_exists(__DIR__ . "/lib/connection.php")) {
+    $libPath = __DIR__ . "/lib/";
+} elseif (file_exists(__DIR__ . "/../lib/connection.php")) {
+    $libPath = __DIR__ . "/../lib/";
+} else {
+    die("Error: Could not locate the 'lib' directory. Please check file placement.");
+}
 
-include "../lib/connection.php";
-require_once "../lib/GJPCheck.php";
-require_once "../lib/exploitPatch.php";
-require_once "../lib/mainLib.php";
+include $libPath . "connection.php";
+require_once $libPath . "GJPCheck.php";
+require_once $libPath . "exploitPatch.php";
+require_once $libPath . "mainLib.php";
 
 $gs = new mainLib();
 $message = "";
 $messageType = "";
 
-// Handle Form Submission (Set Daily / Weekly / Event)
+// Handle Form Submission
 if ($_SERVER["REQUEST_METHOD"] === "POST") {
-    $userName  = ExploitPatch::charclean($_POST["userName"] ?? '');
-    $gjpInput  = ExploitPatch::remove($_POST["gjp"] ?? '');
-    $levelID   = (int)ExploitPatch::number($_POST["levelID"] ?? 0);
-    $type      = (int)ExploitPatch::number($_POST["type"] ?? 0); // 0 = Daily, 1 = Weekly, 2 = Event
+    $userName = ExploitPatch::charclean($_POST["userName"] ?? '');
+    $gjpInput = ExploitPatch::remove($_POST["gjp"] ?? '');
+    $levelID  = (int)ExploitPatch::number($_POST["levelID"] ?? 0);
+    $type     = (int)ExploitPatch::number($_POST["type"] ?? 0);
 
     if (empty($userName) || empty($gjpInput) || $levelID <= 0) {
         $message = "Please fill in all required fields properly.";
         $messageType = "danger";
     } else {
-        // 1. Verify User Credentials & Mod Permissions
-        $accountID = $gs->checkPassword($userName, $gjpInput); // Returns accountID or -1/0
+        // Authenticate User
+        $accountID = $gs->checkPassword($userName, $gjpInput);
         
         if ($accountID <= 0) {
             $message = "Invalid username or password/GJP.";
@@ -34,10 +41,10 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             $modLevel = (int)$permQuery->fetchColumn();
 
             if ($modLevel < 2) {
-                $message = "Access Denied: You must be an Elder Moderator (or Admin) to set special levels.";
+                $message = "Access Denied: You must be an Elder Moderator or higher.";
                 $messageType = "danger";
             } else {
-                // 2. Validate Target Level Existence
+                // Check Level Existence
                 $lvlQuery = $db->prepare("SELECT levelID FROM levels WHERE levelID = :levelID LIMIT 1");
                 $lvlQuery->execute([':levelID' => $levelID]);
 
@@ -45,25 +52,23 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
                     $message = "Level ID {$levelID} does not exist in the database.";
                     $messageType = "danger";
                 } else {
-                    // 3. Insert or Update Daily/Weekly/Event Slot
-                    $timestamp = time();
-                    
-                    // Assign auto-incrementing feature ID for the given type
+                    // Get next feature ID
                     $feaQuery = $db->prepare("SELECT MAX(feaID) FROM dailyfeatures WHERE type = :type");
                     $feaQuery->execute([':type' => $type]);
                     $nextFeaID = ((int)$feaQuery->fetchColumn()) + 1;
 
+                    // Insert Special Level
                     $insertStmt = $db->prepare("INSERT INTO dailyfeatures (levelID, timestamp, type, feaID) VALUES (:levelID, :timestamp, :type, :feaID)");
                     $inserted = $insertStmt->execute([
                         ':levelID'   => $levelID,
-                        ':timestamp' => $timestamp,
+                        ':timestamp' => time(),
                         ':type'      => $type,
                         ':feaID'     => $nextFeaID
                     ]);
 
                     if ($inserted) {
                         $typeName = match($type) { 0 => 'Daily Level', 1 => 'Weekly Demon', 2 => 'Event Level', default => 'Special Level' };
-                        $message = "Success! Level ID <strong>{$levelID}</strong> has been set as the new <strong>{$typeName}</strong>.";
+                        $message = "Success! Level ID <strong>{$levelID}</strong> set as <strong>{$typeName}</strong>.";
                         $messageType = "success";
                     } else {
                         $message = "Database error while setting special level.";
@@ -80,59 +85,31 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Special Levels Manager - Elder Mod Panel</title>
-    <!-- Bootstrap 5 CSS for Structure -->
+    <title>Special Levels Manager</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    
     <style>
-        .menubar {
-            background-color: #1e2124;
-            color: #d6ddde;
-        }
-        .content {
-            background-color: #36393e;
-            color: #a7a8aa;
-        }
-        html, body {
-            height: 100%;
-            background-color: #36393e;
-        }
-        .fill {
-            flex: 1;
-        }
-        .btn-primary,
-        .btn-primary:visited {
+        .menubar { background-color: #1e2124; color: #d6ddde; }
+        .content { background-color: #36393e; color: #a7a8aa; }
+        html, body { height: 100%; background-color: #36393e; }
+        .fill { flex: 1; }
+        .btn-primary, .btn-primary:visited {
             background-color: #212529;
             border-color: #212529;
             color: #d6ddde;
         }
-        .btn-primary:hover,
-        .btn-primary:active,
-        .btn-primary:focus {
+        .btn-primary:hover, .btn-primary:active, .btn-primary:focus {
             background-color: #47494e;
             border-color: #47494e;
             color: #ffffff;
         }
-        .buffer {
-            margin-top: 20px;
-            margin-bottom: 20px;
-            margin-left: 20px;
-            margin-right: 20px;
-        }
+        .buffer { margin: 20px; }
         .container-box {
             height: 100%;
             display: flex;
             justify-content: center;
             align-items: center;
         }
-        .login-input {
-            width: 250px;
-        }
-        .black-dropdown {
-            background-color: #e7e7e7;
-        }
-
-        /* Custom Panel Form Styling matching the color scheme */
+        .black-dropdown { background-color: #e7e7e7; }
         .panel-card {
             background-color: #1e2124;
             border: 1px solid #2f3136;
@@ -153,10 +130,7 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             border-color: #47494e;
             box-shadow: none;
         }
-        .form-label {
-            color: #d6ddde;
-            font-weight: 500;
-        }
+        .form-label { color: #d6ddde; font-weight: 500; }
     </style>
 </head>
 <body class="content">
@@ -178,7 +152,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
             <?php endif; ?>
 
             <form method="POST" action="">
-                <!-- Account Credentials Authentication -->
                 <div class="mb-3">
                     <label for="userName" class="form-label">Elder Mod Username</label>
                     <input type="text" class="form-control" id="userName" name="userName" required placeholder="Username">
@@ -191,7 +164,6 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
 
                 <hr class="my-4" style="border-color: #47494e;">
 
-                <!-- Level & Target Special Type -->
                 <div class="mb-3">
                     <label for="levelID" class="form-label">Level ID</label>
                     <input type="number" class="form-control" id="levelID" name="levelID" min="1" required placeholder="e.g. 123456">
