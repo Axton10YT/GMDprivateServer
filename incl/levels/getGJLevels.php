@@ -2,7 +2,7 @@
 chdir(dirname(__FILE__));
 
 include "../lib/connection.php";
-require_once "../lib/GJPCheck.php";
+require_once "../lib/GJPCheck.php"; // replacing with GJP3 soon. 
 require_once "../lib/exploitPatch.php";
 require_once "../lib/mainLib.php";
 require_once "../lib/generateHash.php";
