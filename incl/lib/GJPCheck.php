@@ -1,61 +1,110 @@
 <?php
-require_once dirname(__FILE__)."/XORCipher.php";
-require_once dirname(__FILE__)."/generatePass.php";
-include_once dirname(__FILE__)."/mainLib.php";
+require_once __DIR__ . "/XORCipher.php";
+require_once __DIR__ . "/generatePass.php";
+require_once __DIR__ . "/mainLib.php";
 
 class GJPCheck {
-	public static function check($gjp, $accountID) {
-		include dirname(__FILE__)."/connection.php";
-		include dirname(__FILE__)."/../../config/security.php";
-		$ml = new mainLib();
-		if($sessionGrants){
-			$ip = $ml->getIP();
-			$query = $db->prepare("SELECT count(*) FROM actions WHERE type = 16 AND value = :accountID AND value2 = :ip AND timestamp > :timestamp");
-			$query->execute([':accountID' => $accountID, ':ip' => $ip, ':timestamp' => time() - 3600]);
-			if($query->fetchColumn() > 0){
-				return 1;
-			}
-		}
-		$gjpdecode = str_replace("_","/",$gjp);
-		$gjpdecode = str_replace("-","+",$gjpdecode);
-		$gjpdecode = base64_decode($gjpdecode);
-		$gjpdecode = XORCipher::cipher($gjpdecode,37526);
-		$validationResult = GeneratePass::isValid($accountID, $gjpdecode);
-		if($validationResult == 1 AND $sessionGrants){
-			$ip = $ml->getIP();
-			$query = $db->prepare("INSERT INTO actions (type, value, value2, timestamp) VALUES (16, :accountID, :ip, :timestamp)");
-			$query->execute([':accountID' => $accountID, ':ip' => $ip, ':timestamp' => time()]);
-		}
-		return $validationResult;
-	}
+    
+    /**
+     * Validates GJP password string against accountID
+     *
+     * @param string $gjp
+     * @param int|string $accountID
+     * @return int 1 on success, 0 or negative on failure
+     */
+    public static function check($gjp, $accountID) {
+        if (empty($gjp) || empty($accountID)) {
+            return 0;
+        }
 
-	public static function validateGJPOrDie($gjp, $accountID){
-		if(self::check($gjp, $accountID) != 1)
-			exit("-1");
-	}
+        global $db, $sessionGrants;
+        
+        if (!isset($db)) {
+            include __DIR__ . "/connection.php";
+        }
+        if (!isset($sessionGrants)) {
+            include_once __DIR__ . "/../../config/security.php";
+        }
 
-	public static function validateGJP2OrDie($gjp2, $accountID){
-		if(GeneratePass::isGJP2Valid($accountID, $gjp2) != 1)
-			exit("-1");
-	}
+        $ml = new mainLib();
 
-	/**
-	 * Gets accountID and from the POST parameters and validates if the provided GJP matches
-	 *
-	 * @return     The account id
-	 */
-	public static function getAccountIDOrDie(){
-		require_once "../lib/exploitPatch.php";
-		
-		if(empty($_POST['accountID'])) exit("-1");
+        // 1. Session Grants Check (Fast Path)
+        if (!empty($sessionGrants)) {
+            $ip = $ml->getIP();
+            $cutoff = time() - 3600;
 
-		$accountID = ExploitPatch::remove($_POST["accountID"]);
+            $query = $db->prepare("SELECT 1 FROM actions WHERE type = 16 AND value = :accountID AND value2 = :ip AND timestamp > :timestamp LIMIT 1");
+            $query->execute([
+                ':accountID' => $accountID,
+                ':ip'        => $ip,
+                ':timestamp' => $cutoff
+            ]);
 
-		if(!empty($_POST['gjp'])) self::validateGJPOrDie($_POST['gjp'], $accountID);
-		elseif(!empty($_POST['gjp2'])) self::validateGJP2OrDie($_POST['gjp2'], $accountID);
-		else exit("-1");
+            if ($query->fetchColumn()) {
+                return 1;
+            }
+        }
 
-		return $accountID;
-	}
+        // 2. Decode GJP Cipher String
+        $gjpDecoded = base64_decode(strtr($gjp, '-_', '+/'));
+        if ($gjpDecoded === false) {
+            return 0;
+        }
+
+        $password = XORCipher::cipher($gjpDecoded, 37526);
+
+        // 3. Password Verification
+        $validationResult = GeneratePass::isValid($accountID, $password);
+
+        // 4. Cache Valid Session Action
+        if ($validationResult === 1 && !empty($sessionGrants)) {
+            $ip = $ml->getIP();
+            $query = $db->prepare("INSERT INTO actions (type, value, value2, timestamp) VALUES (16, :accountID, :ip, :timestamp)");
+            $query->execute([
+                ':accountID' => $accountID,
+                ':ip'        => $ip,
+                ':timestamp' => time()
+            ]);
+        }
+
+        return $validationResult;
+    }
+
+    public static function validateGJPOrDie($gjp, $accountID) {
+        if (self::check($gjp, $accountID) !== 1) {
+            exit("-1");
+        }
+    }
+
+    public static function validateGJP2OrDie($gjp2, $accountID) {
+        if (GeneratePass::isGJP2Valid($accountID, $gjp2) !== 1) {
+            exit("-1");
+        }
+    }
+
+    /**
+     * Extracts accountID from POST parameters and validates GJP / GJP2
+     *
+     * @return string|int $accountID
+     */
+    public static function getAccountIDOrDie() {
+        require_once __DIR__ . "/exploitPatch.php";
+
+        if (empty($_POST['accountID'])) {
+            exit("-1");
+        }
+
+        $accountID = ExploitPatch::remove($_POST["accountID"]);
+
+        if (!empty($_POST['gjp'])) {
+            self::validateGJPOrDie($_POST['gjp'], $accountID);
+        } elseif (!empty($_POST['gjp2'])) {
+            self::validateGJP2OrDie($_POST['gjp2'], $accountID);
+        } else {
+            exit("-1");
+        }
+
+        return $accountID;
+    }
 }
 ?>
