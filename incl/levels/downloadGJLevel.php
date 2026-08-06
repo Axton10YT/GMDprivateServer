@@ -8,19 +8,18 @@ require_once "../lib/exploitPatch.php";
 
 $gs = new mainLib();
 
-// 1. Sanitize Inputs
-$levelID = isset($_POST["levelID"]) ? (int)ExploitPatch::number($_POST["levelID"]) : 0;
-$inc     = isset($_POST["inc"]) ? (int)ExploitPatch::number($_POST["inc"]) : 0;
-$extras  = isset($_POST["extras"]) ? (int)ExploitPatch::number($_POST["extras"]) : 0;
+// Sanitization
+$levelID = !empty($_POST["levelID"]) ? (int)ExploitPatch::number($_POST["levelID"]) : 0;
+$inc     = !empty($_POST["inc"]) ? (int)ExploitPatch::number($_POST["inc"]) : 0;
+$extras  = !empty($_POST["extras"]) ? (int)ExploitPatch::number($_POST["extras"]) : 0;
 
 if ($levelID == 0) {
     exit("-1");
 }
 
-// 2. Resolve Daily / Weekly / Special Level IDs
-// In GD, negative IDs or specific inc flags can refer to dailyfeatures
+// Handle Daily/Weekly negative level IDs
 if ($levelID < 0) {
-    $type = abs($levelID) - 1; // Or custom mapping depending on your client build
+    $type = abs($levelID) - 1;
     $stmt = $db->prepare("SELECT levelID FROM dailyfeatures WHERE type = :type ORDER BY timestamp DESC LIMIT 1");
     $stmt->execute([':type' => $type]);
     $levelID = (int)$stmt->fetchColumn();
@@ -30,7 +29,7 @@ if ($levelID <= 0) {
     exit("-1");
 }
 
-// 3. Fetch Level Details
+// Fetch Level Data
 $query = $db->prepare("SELECT * FROM levels WHERE levelID = :levelID LIMIT 1");
 $query->execute([':levelID' => $levelID]);
 $level = $query->fetch(PDO::FETCH_ASSOC);
@@ -39,10 +38,8 @@ if (!$level) {
     exit("-1");
 }
 
-// 4. Retrieve Level String Data
+// Level String Handling
 $levelString = $level["levelString"] ?? "";
-
-// Check external file if levelString in DB is empty
 if (empty($levelString)) {
     $filePath = "../data/levels/" . $levelID;
     if (file_exists($filePath)) {
@@ -54,14 +51,13 @@ if (empty($levelString)) {
     exit("-1");
 }
 
-// 5. Update Downloads Count (If non-author downloaded)
+// Update downloads count
 if ($inc == 1) {
-    $updateDownloads = $db->prepare("UPDATE levels SET downloads = downloads + 1 WHERE levelID = :levelID");
-    $updateDownloads->execute([':levelID' => $levelID]);
+    $update = $db->prepare("UPDATE levels SET downloads = downloads + 1 WHERE levelID = :levelID");
+    $update->execute([':levelID' => $levelID]);
 }
 
-// 6. Format GD Download Response (Key-Value Array format)
-// Standard GD 2.1 Response format: 1:ID:2:Name:3:Desc:4:LevelString:5:Version:6:UserID:8:Difficulty:9:Auto...
+// Build Level Array
 $response = array(
     1  => $level["levelID"],
     2  => $level["levelName"],
@@ -84,9 +80,10 @@ $response = array(
     29 => $level["updateDate"],
     35 => $level["songID"],
     36 => $level["extraString"] ?? "",
-    37 => $level["coins"],
-    38 => $level["starCoins"],
-    39 => $level["requestedStars"],
+    37 => $level["coins"] ?? 0,
+    38 => $level["starCoins"] ?? 0,
+    39 => $level["requestedStars"] ?? 0,
+    42 => $level["starEpic"] ?? 0,
     45 => $level["objectCount"] ?? 0
 );
 
@@ -95,12 +92,15 @@ foreach ($response as $key => $value) {
     $output .= $key . ":" . $value . ":";
 }
 
-// Append Hash Checks (#2.1 Hash String)
+// Remove trailing colon
+$output = rtrim($output, ":");
+
+// Hash 1: Solo2 Hash for Level String
 $hash = $gs->genSolo2($levelString);
-$output .= "#" . $hash;
 
-// Optional: Extra user/creator metadata hash
-$output .= "#" . $level["userID"] . ":" . $level["extID"];
+// Hash 2: Pass/Password Hash (or xor pass string depending on core)
+$passHash = $gs->genSolo2($level["password"] . "1");
 
-echo $output;
+// Append Hash Blocks strictly as GD client expects
+echo $output . "#" . $hash . "#" . $passHash;
 ?>
