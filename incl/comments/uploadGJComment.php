@@ -1,49 +1,67 @@
 <?php
 chdir(dirname(__FILE__));
+
 include "../lib/connection.php";
 require_once "../lib/mainLib.php";
-$mainLib = new mainLib();
 require_once "../lib/GJPCheck.php";
 require_once "../lib/exploitPatch.php";
 require_once "../lib/commands.php";
 
-$userName = !empty($_POST['userName']) ? ExploitPatch::remove($_POST['userName']) : "";
-$gameVersion = !empty($_POST['gameVersion']) ? ExploitPatch::number($_POST['gameVersion']) : 0;
-$comment = ExploitPatch::remove($_POST['comment']);
-$comment = ($gameVersion < 20) ? base64_encode($comment) : $comment;
-$levelID = ($_POST['levelID'] < 0 ? '-' : '').ExploitPatch::number($_POST["levelID"]);
-$percent = !empty($_POST["percent"]) ? ExploitPatch::remove($_POST["percent"]) : 0;
+$mainLib = new mainLib();
 
-$id = $mainLib->getIDFromPost();
-$register = is_numeric($id);
-$userID = $mainLib->getUserID($id, $userName);
+// 1. Core Parameter Extraction
+$userName    = !empty($_POST['userName']) ? ExploitPatch::charclean($_POST['userName']) : "";
+$gameVersion = !empty($_POST['gameVersion']) ? (int)ExploitPatch::number($_POST['gameVersion']) : 0;
+$comment     = !empty($_POST['comment']) ? ExploitPatch::remove($_POST['comment']) : "";
+$levelID     = isset($_POST['levelID']) ? ExploitPatch::numbercolon($_POST['levelID']) : 0;
+$percent     = !empty($_POST['percent']) ? (int)ExploitPatch::number($_POST['percent']) : 0;
+
+if (empty($comment)) {
+    exit("-1");
+}
+
+// Get Authenticated Account/User Identifiers
+$accountID = $mainLib->getIDFromPost();
+if (empty($accountID) || $accountID <= 0) {
+    exit("-1");
+}
+
+$userID     = $mainLib->getUserID($accountID, $userName);
 $uploadDate = time();
-$decodecomment = base64_decode($comment);
-if(Commands::doCommands($id, $decodecomment, $levelID)){
-	exit($gameVersion > 20 ? "temp_0_Command executed successfully!" : "-1");
+
+// Decode comment based on version
+if ($gameVersion >= 20) {
+    $decodedComment = base64_decode(strtr($comment, '-_', '+/')) ?: $comment;
+} else {
+    $decodedComment = $comment;
+    $comment = base64_encode($comment); // Normalizing storage string
 }
-if($id != "" AND $comment != ""){
-	$query = $db->prepare("INSERT INTO comments (userName, comment, levelID, userID, timeStamp, percent) VALUES (:userName, :comment, :levelID, :userID, :uploadDate, :percent)");
-	$query->execute([':userName' => $userName, ':comment' => $comment, ':levelID' => $levelID, ':userID' => $userID, ':uploadDate' => $uploadDate, ':percent' => $percent]);
-	echo 1;
-	if($register){
-		//TODO: improve this
-		if($percent != 0){
-			$query2 = $db->prepare("SELECT percent FROM levelscores WHERE accountID = :accountID AND levelID = :levelID");
-			$query2->execute([':accountID' => $id, ':levelID' => $levelID]);
-			$result = $query2->fetchColumn();
-			if ($query2->rowCount() == 0) {
-				$query = $db->prepare("INSERT INTO levelscores (accountID, levelID, percent, uploadDate)
-				VALUES (:accountID, :levelID, :percent, :uploadDate)");
-			} else {
-				if($result < $percent){
-					$query = $db->prepare("UPDATE levelscores SET percent=:percent, uploadDate=:uploadDate WHERE accountID=:accountID AND levelID=:levelID");
-					$query->execute([':accountID' => $id, ':levelID' => $levelID, ':percent' => $percent, ':uploadDate' => $uploadDate]);
-				}
-			}
-		}
-	}
-}else{
-	echo -1;
+
+$decodedComment = trim($decodedComment);
+
+// 2. Command Execution Handling
+// Checks if comment starts with !, ?, or standard command prefixes defined in commands.php
+if (class_exists('Commands') && method_exists('Commands', 'doCommands')) {
+    $commandResult = Commands::doCommands($accountID, $decodedComment, $levelID);
+    if ($commandResult) {
+        // If doCommands returns a string or true, display pop-up message in GD
+        $msg = is_string($commandResult) ? $commandResult : "Command executed successfully!";
+        exit($gameVersion >= 21 ? "temp_0_{$msg}" : "-1");
+    }
 }
+
+// 3. Normal Comment Insertion
+$query = $db->prepare("INSERT INTO comments (userName, comment, levelID, userID, timeStamp, percent) 
+                       VALUES (:userName, :comment, :levelID, :userID, :uploadDate, :percent)");
+
+$success = $query->execute([
+    ':userName'   => $userName,
+    ':comment'    => $comment,
+    ':levelID'    => $levelID,
+    ':userID'     => $userID,
+    ':uploadDate' => $uploadDate,
+    ':percent'    => $percent
+]);
+
+echo $success ? "1" : "-1";
 ?>
