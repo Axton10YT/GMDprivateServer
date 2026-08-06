@@ -1,18 +1,49 @@
 <?php
 chdir(dirname(__FILE__));
-//error_reporting(0);
+// error_reporting(0);
+
 require_once "../lib/GJPCheck.php";
 require_once "../lib/exploitPatch.php";
-require_once "../lib/mainLib.php"; //this is connection.php too
-$gs = new mainLib(); // todo: make this endpoint faster
+require_once "../lib/mainLib.php";
 
-$accountID = GJPCheck::getAccountIDOrDie();
+$gs = new mainLib();
 
-if ($gs->getMaxValuePermission($accountID,"actionRequestMod") >= 1) { // checks if they have mod
-	$permState = $gs->getMaxValuePermission($accountID,"modBadgeLevel"); // checks mod badge level so it knows what to show					   
-	if ($permState >= 2){ // if the mod badge level is higher than 2, it will still show elder mod message
-		exit("2");
-	}
-	echo $permState; 
+// 1. Rate Limiting / IP Block Check
+$userIP = $gs->getIP();
+if ($gs->isIPBanned($userIP)) {
+    exit("-1");
 }
+
+// 2. Validate GJP/GJP2 Credentials and Extract Account ID
+$accountID = (int)GJPCheck::getAccountIDOrDie();
+
+if ($accountID <= 0) {
+    exit("-1");
+}
+
+// 3. Verify Account Exists & Is Not Banned
+if ($gs->isAccountBanned($accountID)) {
+    exit("-1");
+}
+
+// 4. Moderator Access Check
+$hasModAccess = (int)$gs->getMaxValuePermission($accountID, "actionRequestMod");
+
+if ($hasModAccess >= 1) {
+    $permState = (int)$gs->getMaxValuePermission($accountID, "modBadgeLevel");
+
+    // GD Client Response:
+    // 1 = Normal Mod, 2 = Elder Mod (Values > 2 cap at 2)
+    if ($permState >= 2) {
+        exit("2");
+    }
+
+    if ($permState === 1) {
+        exit("1");
+    }
+}
+
+// Default denial for unauthorized accounts
+exit("-1");
 ?>
+
