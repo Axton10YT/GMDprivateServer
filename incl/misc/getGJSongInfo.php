@@ -14,6 +14,11 @@ if (!is_numeric($songid) || (int)$songid <= 0) {
     exit("-1");
 }
 
+// ── Check for disabled song ID 888042 ─────────────────────────────────────────
+if ((int)$songid === 888042) {
+    exit("-2");
+}
+
 function cdn_song_url($songid): string {
     return "https://cdn.robtop.net/" . rawurlencode((string)$songid);
 }
