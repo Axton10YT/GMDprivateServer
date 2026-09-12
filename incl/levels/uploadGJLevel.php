@@ -16,27 +16,27 @@ if (empty($_POST["levelName"]) || empty($_POST["levelString"])) {
 }
 
 // 2. Extract & Sanitize Core Inputs
-$gameVersion     = (int)ExploitPatch::remove($_POST["gameVersion"] ?? 1);
-$binaryVersion   = (int)ExploitPatch::remove($_POST["binaryVersion"] ?? 0);
+$gameVersion     = (int) ExploitPatch::remove($_POST["gameVersion"] ?? 1);
+$binaryVersion   = (int) ExploitPatch::remove($_POST["binaryVersion"] ?? 0);
 $userName        = ExploitPatch::charclean($_POST["userName"] ?? '');
 $levelName       = ExploitPatch::charclean($_POST["levelName"]);
 $levelString     = ExploitPatch::remove($_POST["levelString"]);
-$levelVersion    = (int)ExploitPatch::remove($_POST["levelVersion"] ?? 1);
-$levelLength     = (int)ExploitPatch::remove($_POST["levelLength"] ?? 0);
-$audioTrack      = (int)ExploitPatch::remove($_POST["audioTrack"] ?? 0);
-$auto            = (int)ExploitPatch::remove($_POST["auto"] ?? 0);
-$original        = (int)ExploitPatch::remove($_POST["original"] ?? 0);
-$twoPlayer       = (int)ExploitPatch::remove($_POST["twoPlayer"] ?? 0);
-$songID          = (int)ExploitPatch::remove($_POST["songID"] ?? 0);
-$objects         = (int)ExploitPatch::remove($_POST["objects"] ?? 0);
-$coins           = (int)ExploitPatch::remove($_POST["coins"] ?? 0);
-$requestedStars  = (int)ExploitPatch::remove($_POST["requestedStars"] ?? 0);
-$unlisted        = (int)ExploitPatch::remove($_POST["unlisted1"] ?? $_POST["unlisted"] ?? 0);
-$unlisted2       = (int)ExploitPatch::remove($_POST["unlisted2"] ?? $unlisted);
-$ldm             = (int)ExploitPatch::remove($_POST["ldm"] ?? 0);
-$wt              = (int)ExploitPatch::remove($_POST["wt"] ?? 0);
-$wt2             = (int)ExploitPatch::remove($_POST["wt2"] ?? 0);
-$ts              = (int)ExploitPatch::number($_POST["ts"] ?? 0);
+$levelVersion    = (int) ExploitPatch::remove($_POST["levelVersion"] ?? 1);
+$levelLength     = (int) ExploitPatch::remove($_POST["levelLength"] ?? 0);
+$audioTrack      = (int) ExploitPatch::remove($_POST["audioTrack"] ?? 0);
+$auto            = (int) ExploitPatch::remove($_POST["auto"] ?? 0);
+$original        = (int) ExploitPatch::remove($_POST["original"] ?? 0);
+$twoPlayer       = (int) ExploitPatch::remove($_POST["twoPlayer"] ?? 0);
+$songID          = (int) ExploitPatch::remove($_POST["songID"] ?? 0);
+$objects         = (int) ExploitPatch::remove($_POST["objects"] ?? 0);
+$coins           = (int) ExploitPatch::remove($_POST["coins"] ?? 0);
+$requestedStars  = (int) ExploitPatch::remove($_POST["requestedStars"] ?? 0);
+$unlisted        = (int) ExploitPatch::remove($_POST["unlisted1"] ?? $_POST["unlisted"] ?? 0);
+$unlisted2       = (int) ExploitPatch::remove($_POST["unlisted2"] ?? $unlisted);
+$ldm             = (int) ExploitPatch::remove($_POST["ldm"] ?? 0);
+$wt              = (int) ExploitPatch::remove($_POST["wt"] ?? 0);
+$wt2             = (int) ExploitPatch::remove($_POST["wt2"] ?? 0);
+$ts              = (int) ExploitPatch::number($_POST["ts"] ?? 0);
 $secret          = ExploitPatch::remove($_POST["secret"] ?? '');
 $levelInfo       = ExploitPatch::remove($_POST["levelInfo"] ?? '');
 $settingsString  = ExploitPatch::remove($_POST["settingsString"] ?? '');
@@ -45,11 +45,9 @@ $sfxIDs          = ExploitPatch::numbercolon($_POST["sfxIDs"] ?? '');
 $extraString     = ExploitPatch::remove($_POST["extraString"] ?? "29_29_29_40_29_29_29_29_29_29_29_29_29_29_29_29");
 
 // Password Resolution
-if (isset($_POST["password"])) {
-    $password = ExploitPatch::remove($_POST["password"]);
-} else {
-    $password = ($gameVersion > 17) ? "0" : "1";
-}
+$password = isset($_POST["password"])
+    ? ExploitPatch::remove($_POST["password"])
+    : (($gameVersion > 17) ? "0" : "1");
 
 // Format Description
 $levelDesc = formatLevelDescription($_POST["levelDesc"] ?? '', $gameVersion);
@@ -71,9 +69,44 @@ $checkQuery = $db->prepare("SELECT levelID FROM levels WHERE levelName = :levelN
 $checkQuery->execute([':levelName' => $levelName, ':userID' => $userID]);
 $existingLevelID = $checkQuery->fetchColumn();
 
+// Shared params common to both INSERT and UPDATE — built once instead of
+// being typed out twice with the same key/value pairs in each branch.
+$sharedParams = [
+    ':gameVersion'    => $gameVersion,
+    ':binaryVersion'  => $binaryVersion,
+    ':userName'       => $userName,
+    ':levelDesc'      => $levelDesc,
+    ':levelVersion'   => $levelVersion,
+    ':levelLength'    => $levelLength,
+    ':audioTrack'     => $audioTrack,
+    ':auto'           => $auto,
+    ':password'       => $password,
+    ':original'       => $original,
+    ':twoPlayer'      => $twoPlayer,
+    ':songID'         => $songID,
+    ':objects'        => $objects,
+    ':coins'          => $coins,
+    ':requestedStars' => $requestedStars,
+    ':extraString'    => $extraString,
+    ':levelInfo'      => $levelInfo,
+    ':secret'         => $secret,
+    ':uploadDate'     => $uploadDate,
+    ':unlisted'       => $unlisted,
+    ':hostname'       => $hostname,
+    ':ldm'            => $ldm,
+    ':wt'             => $wt,
+    ':wt2'            => $wt2,
+    ':unlisted2'      => $unlisted2,
+    ':settingsString' => $settingsString,
+    ':songIDs'        => $songIDs,
+    ':sfxIDs'         => $sfxIDs,
+    ':ts'             => $ts,
+];
+
 try {
     if ($existingLevelID) {
-        $levelID = (int)$existingLevelID;
+        $levelID = (int) $existingLevelID;
+
         $updateStmt = $db->prepare("UPDATE levels SET 
             gameVersion = :gameVersion, binaryVersion = :binaryVersion, userName = :userName, levelDesc = :levelDesc, 
             levelVersion = :levelVersion, levelLength = :levelLength, audioTrack = :audioTrack, auto = :auto, 
@@ -84,48 +117,42 @@ try {
             songIDs = :songIDs, sfxIDs = :sfxIDs, ts = :ts 
             WHERE levelID = :levelID");
 
-        $updateStmt->execute([
-            ':gameVersion' => $gameVersion, ':binaryVersion' => $binaryVersion, ':userName' => $userName,
-            ':levelDesc' => $levelDesc, ':levelVersion' => $levelVersion, ':levelLength' => $levelLength,
-            ':audioTrack' => $audioTrack, ':auto' => $auto, ':password' => $password, ':original' => $original,
-            ':twoPlayer' => $twoPlayer, ':songID' => $songID, ':objects' => $objects, ':coins' => $coins,
-            ':requestedStars' => $requestedStars, ':extraString' => $extraString, ':levelInfo' => $levelInfo,
-            ':secret' => $secret, ':uploadDate' => $uploadDate, ':unlisted' => $unlisted, ':hostname' => $hostname,
-            ':ldm' => $ldm, ':wt' => $wt, ':wt2' => $wt2, ':unlisted2' => $unlisted2, ':settingsString' => $settingsString,
-            ':songIDs' => $songIDs, ':sfxIDs' => $sfxIDs, ':ts' => $ts, ':levelID' => $levelID
-        ]);
+        $updateStmt->execute($sharedParams + [':levelID' => $levelID]);
     } else {
         $insertStmt = $db->prepare("INSERT INTO levels 
             (levelName, gameVersion, binaryVersion, userName, levelDesc, levelVersion, levelLength, audioTrack, auto, password, original, twoPlayer, songID, objects, coins, requestedStars, extraString, levelString, levelInfo, secret, uploadDate, userID, extID, updateDate, unlisted, hostname, isLDM, wt, wt2, unlisted2, settingsString, songIDs, sfxIDs, ts)
             VALUES 
             (:levelName, :gameVersion, :binaryVersion, :userName, :levelDesc, :levelVersion, :levelLength, :audioTrack, :auto, :password, :original, :twoPlayer, :songID, :objects, :coins, :requestedStars, :extraString, '', :levelInfo, :secret, :uploadDate, :userID, :accountID, :uploadDate, :unlisted, :hostname, :ldm, :wt, :wt2, :unlisted2, :settingsString, :songIDs, :sfxIDs, :ts)");
 
-        $insertStmt->execute([
-            ':levelName' => $levelName, ':gameVersion' => $gameVersion, ':binaryVersion' => $binaryVersion,
-            ':userName' => $userName, ':levelDesc' => $levelDesc, ':levelVersion' => $levelVersion,
-            ':levelLength' => $levelLength, ':audioTrack' => $audioTrack, ':auto' => $auto, ':password' => $password,
-            ':original' => $original, ':twoPlayer' => $twoPlayer, ':songID' => $songID, ':objects' => $objects,
-            ':coins' => $coins, ':requestedStars' => $requestedStars, ':extraString' => $extraString,
-            ':levelInfo' => $levelInfo, ':secret' => $secret, ':uploadDate' => $uploadDate, ':userID' => $userID,
-            ':accountID' => $accountID, ':unlisted' => $unlisted, ':hostname' => $hostname, ':ldm' => $ldm,
-            ':wt' => $wt, ':wt2' => $wt2, ':unlisted2' => $unlisted2, ':settingsString' => $settingsString,
-            ':songIDs' => $songIDs, ':sfxIDs' => $sfxIDs, ':ts' => $ts
+        $insertStmt->execute($sharedParams + [
+            ':levelName'  => $levelName,
+            ':userID'     => $userID,
+            ':accountID'  => $accountID,
         ]);
 
-        $levelID = (int)$db->lastInsertId();
+        $levelID = (int) $db->lastInsertId();
     }
 
-    // Save level file
+    // Save level file — kept inside the try block so a write failure rolls
+    // back the DB row instead of leaving an orphaned level with no file.
     $dir = "../../data/levels/";
-    if (!is_dir($dir)) {
-        mkdir($dir, 0777, true);
+    if (!is_dir($dir) && !mkdir($dir, 0777, true) && !is_dir($dir)) {
+        throw new RuntimeException("Failed to create levels directory");
     }
-    file_put_contents($dir . $levelID, $levelString);
+
+    if (file_put_contents($dir . $levelID, $levelString) === false) {
+        throw new RuntimeException("Failed to write level file for levelID {$levelID}");
+    }
 
     echo $levelID;
 
-} catch (PDOException $e) {
-    // If database insertion fails, reject upload gracefully
+} catch (Throwable $e) {
+    // If database insertion or file write fails, reject upload gracefully.
+    // If this was a fresh insert (not an update to an existing level),
+    // clean up the orphaned row so a failed upload doesn't leave dead data.
+    if (isset($levelID) && !$existingLevelID) {
+        $db->prepare("DELETE FROM levels WHERE levelID = :levelID")->execute([':levelID' => $levelID]);
+    }
     exit("-1");
 }
 
